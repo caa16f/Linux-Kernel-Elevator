@@ -1,7 +1,11 @@
-obj-m += elevator.o
+obj-y := elevator_calls_wrappers.o
+obj-m := elevator.o
 
-all:
-	make -C /lib/modules/4.15.1/build M=/usr/src/part3 modules
+PWD := $(shell pwd)
+KDIR := /lib/modules/`uname -r`/build
+
+default:
+	$(MAKE) -C $(KDIR) SUBDIRS=$(PWD) modules
 
 clean:
-	make -C /lib/modules/4.15.1/build M=/usr/src/part3 clean
+	rm -f *.o *.ko *.mod.* Module.* modules.*
