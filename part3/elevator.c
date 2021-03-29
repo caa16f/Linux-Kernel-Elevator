@@ -98,18 +98,17 @@ static int currentFloor = 1; //Keeping track of floor member variable
 
 int runElevator(void * data)
 {
-	ssleep(FLOOR_SLEEP);
 
 	passenger_type * person;
 
 
 	while(!kthread_should_stop()){
 
-		mutex_lock_interruptible(&elevator_mutex);
+		//mutex_lock_interruptible(&elevator_mutex);
 		elevator.targetFloor = -1;
 
-		if(!list_empty(&elevator.passengers)){
-			person = list_last_entry(&elevator.passengers, passenger_type, list);
+		if(!list_empty(&elevator.passengers) && elevator.shutdown != 1){
+			person = list_first_entry(&elevator.passengers, passenger_type, list);
 			if(person->targetFloor > 0){
 				elevator.targetFloor = person->targetFloor;
 				printk("New floor destination %d\n", elevator.targetFloor);
@@ -118,27 +117,27 @@ int runElevator(void * data)
 		}
 
 
-	mutex_unlock(&elevator_mutex);
+	//mutex_unlock(&elevator_mutex);
 
-	mutex_lock_interruptible(&elevator_mutex);
-	mutex_lock_interruptible(&building_mutex);
+	//mutex_lock_interruptible(&elevator_mutex);
+	//mutex_lock_interruptible(&building_mutex);
 
 	if(list_empty(&elevator.passengers) && !list_empty(&building.waitingForService)){
-		person = list_last_entry(&building.waitingForService, passenger_type, list);
+		person = list_first_entry(&building.waitingForService, passenger_type, list);
 		printk("Passenger type: %d\npassenger start: %d\npassenger dest: %d\n", person->type, person->startFloor, person->targetFloor);
 		if(person->startFloor > 0){
-			elevator.targetFloor = person->targetFloor;
+		elevator.targetFloor = person->targetFloor;
 			printk("New waiting passenger dest: %d\n", elevator.targetFloor);
 			printk("Current floor %d\n", elevator.floor);
 		}
 	}
 
 
-	mutex_unlock(&building_mutex);
-	mutex_unlock(&elevator_mutex);
+	//mutex_unlock(&building_mutex);
+	//mutex_unlock(&elevator_mutex);
 
 
-	mutex_lock(&elevator_mutex);
+	//mutex_lock(&elevator_mutex);
 	if(elevator.targetFloor == -1 ){
 		elevator.movement = IDLE;
 	}else if(elevator.floor < elevator.targetFloor){
@@ -154,10 +153,13 @@ int runElevator(void * data)
 	}
 
 
+	
+	//mutex_unlock(&elevator_mutex);
+	mutex_lock(&elevator_mutex);
+	ssleep(FLOOR_SLEEP);
 	mutex_unlock(&elevator_mutex);
 	}
 
-	
 
 	return 0;
 
@@ -225,15 +227,15 @@ void addOccupancy(void){
 
 
 void load_passenger(int floor){
-	struct list_head * ptr;
+	struct list_head * ptr, *dummy;
 	passenger_type * person;
 	printk("Passenger Loading\n");
 
-	list_for_each(ptr, &building.waitingForService){
+	list_for_each_safe(ptr,dummy, &building.waitingForService){
 		person = list_entry(ptr, passenger_type, list);
 		if(person->startFloor == floor && checkLoading(person->type)){
 			printk("Loading Passenger\n");
-			list_move(&person->list, &elevator.passengers);
+			list_move_tail(&person->list, &elevator.passengers);
 			addOccupancy();
 		}
 
@@ -261,15 +263,15 @@ void unload_passenger(int floor){
 
 
 void lookAtFloor(int floor){
-        mutex_lock_interruptible(&building_mutex);
-        mutex_lock_interruptible(&elevator_mutex);
+//        mutex_lock_interruptible(&building_mutex);
+        mutex_lock(&elevator_mutex);
 
         if(!list_empty(&building.waitingForService) && elevator.shutdown != 1)
 	        load_passenger(floor);
-        mutex_unlock(&elevator_mutex);
-        mutex_unlock(&building_mutex);
+     //   mutex_unlock(&elevator_mutex);
+    //    mutex_unlock(&building_mutex);
 
-        mutex_lock(&elevator_mutex);
+      //  mutex_lock(&elevator_mutex);
         if(!list_empty(&elevator.passengers))
                 unload_passenger(floor);
         mutex_unlock(&elevator_mutex);
@@ -279,10 +281,11 @@ void lookAtFloor(int floor){
 
 
 
-int runLoading(){
-
+int runLoading(void * data){
+	while(!kthread_should_stop()){
         ssleep(LOAD_SLEEP);
         lookAtFloor(elevator.floor);
+	}
 	return 0;
 }
 
@@ -307,24 +310,24 @@ int start_elevator(void){
 }
 
 extern int (*STUB_issue_request)(int,int,int);
-int issue_request(int sfloor, int tfloor, int passenger_type){
+int issue_request(int sfloor, int tfloor, int passenger_type1){
 
-	printk("New request: %d, %d => %d\n", passenger_type, sfloor, tfloor);
+	printk("New request: %d, %d => %d\n", passenger_type1, sfloor, tfloor);
 
-	if(passenger_type < 0 || passenger_type > 2) return ISSUE_ERROR;
+	if(passenger_type1 < 0 || passenger_type1 > 2) return ISSUE_ERROR;
 	if(sfloor < 1 || sfloor > 10) return ISSUE_ERROR;
 	if(tfloor <1 || tfloor > 10) return ISSUE_ERROR;
 	if(tfloor == sfloor) return ISSUE_ERROR;
 
-	passenger = kmalloc(sizeof(passenger_type), KFLAGS);
-	passenger->type = passenger_type;
+	passenger = kmalloc(sizeof(passenger_type1), KFLAGS);
+	passenger->type = passenger_type1;
 	passenger->startFloor = sfloor;
 	passenger->targetFloor = tfloor;
 
 	printk("Passenger Type : %d\n passenger start: %d\n passenger dest: %d\n", passenger->type , passenger->startFloor, passenger->targetFloor);
-	mutex_lock_interruptible(&building_mutex);
+	//mutex_lock_interruptible(&building_mutex);
 	list_add_tail(&passenger->list, &building.waitingForService);
-	mutex_unlock(&building_mutex);
+	//mutex_unlock(&building_mutex);
 
 	return 0;
 }
@@ -448,17 +451,17 @@ int elevator_open(struct inode *sp_inode, struct file *sp_file){
 	printk("Proc elevator open\n");
 
 	while(!printElevator){
-	mutex_lock_interruptible(&elevator_mutex);
+	//mutex_lock_interruptible(&elevator_mutex);
 	printElevatorStatus(currentMsg);
 	printElevator = 1;
-	mutex_unlock(&elevator_mutex);
+	//mutex_unlock(&elevator_mutex);
 	}
 
 	while(!printBuilding){
-		mutex_lock_interruptible(&building_mutex);
+	//	mutex_lock_interruptible(&building_mutex);
 		printBuildingStatus(currentMsg);
 		printBuilding = 1;
-		mutex_unlock(&building_mutex);
+	//	mutex_unlock(&building_mutex);
 	}
 
 	if(currentMsg == NULL){
@@ -477,6 +480,10 @@ ssize_t elevator_read(struct file *sp_file, char __user * buf, size_t size, loff
 		return 0;
 
 	copy_to_user(buf,currentMsg,strlen(currentMsg));
+
+	if(strlen(currentMsg) == 0){
+		memset(currentMsg, 0, strlen(currentMsg));
+	}
 	return strlen(currentMsg);
 }
 
@@ -505,22 +512,22 @@ static int elevator_init(void){
 	//initalize the elevator locks
 	mutex_init(&elevator_mutex);
 	mutex_init(&building_mutex);
-	
-	
-	
-	
+
+
+	mutex_lock_interruptible(&elevator_mutex);
         thread_elevator = kthread_run(runElevator, NULL, "elevator thread");
 	if(IS_ERR(thread_elevator)){
 		printk("Error encountered in kthread_run of elevator thread");
 		return PTR_ERR(thread_elevator);
 	}
-	
+
 	thread_loader = kthread_run(runLoading, NULL, "Loader Thread");
 	if(IS_ERR(thread_loader)){
 		printk("Error encountered in kthread_run of loader thread");
 		return PTR_ERR(thread_loader);
 	}
-	
+	mutex_unlock(&elevator_mutex);
+
 	building.serviced = 0;
 
 	if(!proc_create(ENTRY_NAME, PERMS, NULL, &fops)){
@@ -580,3 +587,4 @@ static void elevator_exit(void)
 }
 
 module_exit(elevator_exit);
+
