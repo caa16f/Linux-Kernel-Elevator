@@ -47,7 +47,7 @@ typedef struct{
 #define ENTRY_NAME "elevator"
 #define PERMS 0644
 #define PARENT NULL
-#define MAXLEN 2048
+#define MAXLEN 8192
 
 #ifndef __GFP_WAIT
 #define __GFP_WAIT __GFP_RECLAIM
@@ -93,14 +93,17 @@ static int currentFloor = 1; //Keeping track of floor member variable
 
 
 
+
+
+
 int runElevator(void * data)
 {
+	ssleep(FLOOR_SLEEP);
 
 	passenger_type * person;
 
 
 	while(!kthread_should_stop()){
-		ssleep(FLOOR_SLEEP);
 
 		mutex_lock_interruptible(&elevator_mutex);
 		elevator.targetFloor = -1;
@@ -110,6 +113,7 @@ int runElevator(void * data)
 			if(person->targetFloor > 0){
 				elevator.targetFloor = person->targetFloor;
 				printk("New floor destination %d\n", elevator.targetFloor);
+
 			}
 		}
 
@@ -134,7 +138,7 @@ int runElevator(void * data)
 	mutex_unlock(&elevator_mutex);
 
 
-	mutex_lock_interruptible(&elevator_mutex);
+	mutex_lock(&elevator_mutex);
 	if(elevator.targetFloor == -1 ){
 		elevator.movement = IDLE;
 	}else if(elevator.floor < elevator.targetFloor){
@@ -151,10 +155,11 @@ int runElevator(void * data)
 
 
 	mutex_unlock(&elevator_mutex);
-
 	}
 
+	runLoading();
 
+	return 0;
 
 }
 
@@ -186,17 +191,17 @@ int checkLoading(int type){
 
 		case SHEEP:
 			if(elevator.occupancy +1 <= MAX_LOAD && !containsWolf)
-				return !(elevator.occupancy + 1 == MAX_LOAD);
+				return 1;
 		break;
 
 		case WOLF:
                         if(elevator.occupancy +1 <= MAX_LOAD)
-                                return !(elevator.occupancy + 1 == MAX_LOAD);
+                                return 1;
                 break;
 
 		case GRAPES:
                         if(elevator.occupancy +1 <= MAX_LOAD && !containsSheep)
-                                return !(elevator.occupancy + 1 == MAX_LOAD);
+                                return 1;
                 break;
 
 
@@ -222,7 +227,7 @@ void addOccupancy(void){
 void load_passenger(int floor){
 	struct list_head * ptr;
 	passenger_type * person;
-
+	printk("Passenger Loading\n");
 
 	list_for_each(ptr, &building.waitingForService){
 		person = list_entry(ptr, passenger_type, list);
@@ -240,6 +245,7 @@ void load_passenger(int floor){
 void unload_passenger(int floor){
 	struct list_head *ptr, *dummy;
 	passenger_type * person;
+	printk("Passenger Unloading\n");
 
 	list_for_each_safe(ptr,dummy,&elevator.passengers){
 		person = list_entry(ptr, passenger_type, list);
@@ -259,12 +265,11 @@ void lookAtFloor(int floor){
         mutex_lock_interruptible(&elevator_mutex);
 
         if(!list_empty(&building.waitingForService) && elevator.shutdown != 1)
-                load_passenger(floor);
-
+	        load_passenger(floor);
         mutex_unlock(&elevator_mutex);
         mutex_unlock(&building_mutex);
 
-        mutex_lock_interruptible(&elevator_mutex);
+        mutex_lock(&elevator_mutex);
         if(!list_empty(&elevator.passengers))
                 unload_passenger(floor);
         mutex_unlock(&elevator_mutex);
@@ -274,13 +279,11 @@ void lookAtFloor(int floor){
 
 
 
-int runLoading(void *data){
-        while(!kthread_should_stop()){
-                ssleep(LOAD_SLEEP);
-                lookAtFloor(elevator.floor);
-        }
+int runLoading(){
 
-
+        ssleep(LOAD_SLEEP);
+        lookAtFloor(elevator.floor);
+	return 0;
 }
 
 
@@ -311,8 +314,8 @@ int issue_request(int sfloor, int tfloor, int passenger_type){
 	if(passenger_type < 0 || passenger_type > 2) return ISSUE_ERROR;
 	if(sfloor < 1 || sfloor > 10) return ISSUE_ERROR;
 	if(tfloor <1 || tfloor > 10) return ISSUE_ERROR;
+	if(tfloor == sfloor) return ISSUE_ERROR;
 
-	//TODO FIX KFLAGS NEED TO BE IN KERNEL NOT usr/src
 	passenger = kmalloc(sizeof(passenger_type), KFLAGS);
 	passenger->type = passenger_type;
 	passenger->startFloor = sfloor;
@@ -353,6 +356,7 @@ void removeSyscalls(void){
 
 
 void printElevatorStatus(char * msg){
+
 	msgLen += snprintf(currentMsg , MAXLEN, "\n=======Elevator======\n");
 
 
@@ -376,7 +380,7 @@ void printElevatorStatus(char * msg){
 	}
 
 	msgLen += snprintf(currentMsg + msgLen, MAXLEN-msgLen, "Movement State: %s\n", printMovement);
-	msgLen += snprintf(currentMsg + msgLen, MAXLEN-msgLen, "Current Floor: %d\n", elevator.floor);
+	msgLen += snprintf(currentMsg + msgLen, MAXLEN-msgLen, "Current Floor: %d\n", elevator.floor+1);
 	msgLen += snprintf(currentMsg + msgLen, MAXLEN-msgLen, "Passenger Count: %d\n", elevator.occupancy);
 
 
@@ -386,7 +390,7 @@ void printElevatorStatus(char * msg){
 void printBuildingStatus(char * msg){
 	int startFloor;
 	int waiting[10];
-	int totalWaiting;
+	int totalWaiting = 0;
 
 	msgLen += snprintf(currentMsg + msgLen, MAXLEN-msgLen, "Number of passengers serviced: %d\n", building.serviced);
 
@@ -413,9 +417,9 @@ void printBuildingStatus(char * msg){
 	msgLen += snprintf(currentMsg + msgLen, MAXLEN-msgLen, "Number of passengers waiting: %d\n", totalWaiting);
 
 
-	int i = 0;
+	int i;
 	for(i = 0; i < 10; i++){
-		if(elevator.floor = i){
+		if(elevator.floor == i){
 			msgLen += snprintf(currentMsg + msgLen, MAXLEN-msgLen, "[*] Floor %d: %d\n", i+1, waiting[i]);
 		}else{
 			msgLen += snprintf(currentMsg + msgLen, MAXLEN-msgLen, "[] Floor %d: %d\n", i+1, waiting[i]);
@@ -465,8 +469,9 @@ int elevator_open(struct inode *sp_inode, struct file *sp_file){
 	return 0;
 }
 
-ssize_t elevator_read(struct file *sp_file, char __user *buf, size_t size, loff_t *offset){
+ssize_t elevator_read(struct file *sp_file, char __user * buf, size_t size, loff_t *offset){
 	printk("Elevator Read Called");
+
 	read_p = !read_p;
 	if(read_p)
 		return 0;
@@ -492,10 +497,6 @@ static int elevator_init(void){
 	fops.open = elevator_open;
 	fops.read = elevator_read;
 	fops.release = elevator_release;
-
-
-
-
 	
 	
 	INIT_LIST_HEAD(&elevator.passengers);
@@ -506,23 +507,20 @@ static int elevator_init(void){
 	mutex_init(&building_mutex);
 	
 	
-	//initalize the floor lock
-	mutex_init(&floor_mutex);
 	
 	
-
         thread_elevator = kthread_run(runElevator, NULL, "elevator thread");
 	if(IS_ERR(thread_elevator)){
 		printk("Error encountered in kthread_run of elevator thread");
 		return PTR_ERR(thread_elevator);
 	}
-
+	/*
 	thread_loader = kthread_run(runLoading, NULL, "Loader Thread");
 	if(IS_ERR(thread_loader)){
 		printk("Error encountered in kthread_run of loader thread");
 		return PTR_ERR(thread_loader);
 	}
-
+	*/
 	building.serviced = 0;
 
 	if(!proc_create(ENTRY_NAME, PERMS, NULL, &fops)){
@@ -530,6 +528,7 @@ static int elevator_init(void){
 		remove_proc_entry(ENTRY_NAME,NULL);
 		return -ENOMEM;
 	}
+
 	return 0;
 }
 module_init(elevator_init);
