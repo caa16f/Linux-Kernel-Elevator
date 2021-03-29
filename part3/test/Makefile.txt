@@ -1,0 +1,13 @@
+
+compile: test.c
+	gcc -o test.x test.c
+
+watch_proc:
+	while [ 1 ]; do \
+		clear; clear; \
+		cat /proc/elevator; \
+		sleep 1; \
+	done
+
+clean:
+	rm *.x
