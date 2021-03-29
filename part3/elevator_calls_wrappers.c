@@ -13,7 +13,7 @@ EXPORT_SYMBOL_GPL(STUB_issue_request);
 EXPORT_SYMBOL_GPL(STUB_stop_elevator);
 
 //Start elevator wrapper
-asmlinkage long sys_start_elevator(void)
+SYSCALL_DEFINE0(start_elevator)
 {
   if (STUB_start_elevator != NULL)
     return STUB_start_elevator();
@@ -22,7 +22,7 @@ asmlinkage long sys_start_elevator(void)
 }
 
 //Issue request wrapper
-asmlinkage long sys_issue_request(int passengerCarryType, int currentFloor, int destinationFloor)
+SYSCALL_DEFINE3(issue_request, int ,passengerCarryType, int ,currentFloor, int ,destinationFloor)
 {
   if (STUB_issue_request != NULL)
     return STUB_issue_request(passengerCarryType, currentFloor, destinationFloor);
@@ -31,7 +31,7 @@ asmlinkage long sys_issue_request(int passengerCarryType, int currentFloor, int 
 }
 
 //Stop elevator wrapper
-asmlinkage long sys_stop_elevator(void)
+SYSCALL_DEFINE0(stop_elevator)
 {
   if (STUB_stop_elevator != NULL)
     return STUB_stop_elevator();
